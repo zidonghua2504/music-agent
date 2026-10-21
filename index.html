@@ -2126,5 +2126,222 @@ window.copyReport=copyReport; window.confirmRestart=confirmRestart;
 window.openHist=openHist; window.delHist=delHist;
 init();
 </script>
+  <script>
+// 在这里粘贴我们之前写的全部JS代码
+// ===== 存储KEY 统一管理 =====
+const STORAGE = {
+  listenRecords: 'musicAgent_listenRecords',
+  todoList: 'musicAgent_todoList',
+  favoriteList: 'musicAgent_favoriteList',
+  playMode: 'musicAgent_playMode',
+  finishCount: 'musicAgent_finishCount'
+}
+
+// 初始化本地存储，不存在则新建空数组
+function initStorage() {
+  if (!localStorage.getItem(STORAGE.listenRecords)) localStorage.setItem(STORAGE.listenRecords, JSON.stringify([]));
+  if (!localStorage.getItem(STORAGE.todoList)) localStorage.setItem(STORAGE.todoList, JSON.stringify([]));
+  if (!localStorage.getItem(STORAGE.favoriteList)) localStorage.setItem(STORAGE.favoriteList, JSON.stringify([]));
+  if (!localStorage.getItem(STORAGE.playMode)) localStorage.setItem(STORAGE.playMode, 'study'); // 默认学习模式
+  if (!localStorage.getItem(STORAGE.finishCount)) localStorage.setItem(STORAGE.finishCount, '0');
+}
+initStorage();
+
+// 读取/写入工具函数
+function getStorage(key) {
+  return JSON.parse(localStorage.getItem(key));
+}
+function setStorage(key, data) {
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+// ===== 待听清单 =====
+function addToTodo(music) {
+  const list = getStorage(STORAGE.todoList);
+  const exist = list.find(item => item.musicId === music.musicId);
+  if(exist) return alert("已经在待听清单里了");
+  list.push({
+    musicId: music.musicId,
+    title: music.title,
+    addTime: new Date().toLocaleString()
+  });
+  setStorage(STORAGE.todoList, list);
+  renderTodoList();
+}
+function removeFromTodo(musicId) {
+  let list = getStorage(STORAGE.todoList);
+  list = list.filter(item => item.musicId !== musicId);
+  setStorage(STORAGE.todoList, list);
+  renderTodoList();
+}
+function renderTodoList() {
+  const todo = getStorage(STORAGE.todoList);
+  const container = document.getElementById('todo-container');
+  if(!container) return;
+  container.innerHTML = todo.map(item=>`
+    <div class="todo-item">
+      <span>${item.title}</span>
+      <button onclick="openMusic('${item.musicId}')">播放</button>
+      <button onclick="removeFromTodo('${item.musicId}')">移除</button>
+    </div>
+  `).join('');
+}
+
+// ===== 收藏 =====
+function toggleFavorite(music) {
+  const list = getStorage(STORAGE.favoriteList);
+  const idx = list.findIndex(item => item.musicId === music.musicId);
+  if(idx >=0) {
+    list.splice(idx,1);
+    alert("已取消收藏");
+  } else {
+    list.push({
+      musicId: music.musicId,
+      title: music.title,
+      addTime: new Date().toLocaleString()
+    });
+    alert("⭐已收藏");
+  }
+  setStorage(STORAGE.favoriteList, list);
+  renderFavoriteList();
+}
+function renderFavoriteList() {
+  const fav = getStorage(STORAGE.favoriteList);
+  const container = document.getElementById('favorite-container');
+  if(!container) return;
+  container.innerHTML = fav.map(item=>`
+    <div class="fav-item">
+      <span>${item.title}</span>
+      <button onclick="openMusic('${item.musicId}')">播放</button>
+    </div>
+  `).join('');
+}
+
+// ===== 聆听模式切换（沉浸 / 学习模式）=====
+let anchorListener = null;
+function enableAnchorPoint(){
+  // 播放器锚点监听，学习模式开启
+  const audio = document.querySelector('audio');
+  if(!audio) return;
+  anchorListener = function() {
+    // 原有锚点判断逻辑写在这里
+  }
+  audio.addEventListener('timeupdate', anchorListener);
+}
+function disableAnchorPoint(){
+  const audio = document.querySelector('audio');
+  if(!audio || !anchorListener) return;
+  audio.removeEventListener('timeupdate', anchorListener);
+  anchorListener = null;
+}
+function switchPlayMode(mode) {
+  setStorage(STORAGE.playMode, mode);
+  const allStudyDom = document.querySelectorAll('.study-only');
+  if(mode === 'study') {
+    allStudyDom.forEach(el=>el.style.display = 'block');
+    enableAnchorPoint();
+  } else {
+    allStudyDom.forEach(el=>el.style.display = 'none');
+    disableAnchorPoint();
+  }
+}
+// 页面加载自动读取上次模式
+window.addEventListener('load', ()=>{
+  const mode = localStorage.getItem(STORAGE.playMode);
+  switchPlayMode(mode);
+  renderTodoList();
+  renderFavoriteList();
+});
+
+// ===== 曲目推荐引擎 =====
+function getRecommendList(currentMusic, allMusicList) {
+  const records = getStorage(STORAGE.listenRecords);
+  const finishedIds = [];
+  records.forEach(rec=>{
+    rec.listenSessions.forEach(s=>{
+      if(s.isComplete) finishedIds.push(rec.musicId);
+    })
+  });
+  const unFinished = allMusicList.filter(m=> !finishedIds.includes(m.musicId));
+  let result = unFinished.filter(m=> m.composer === currentMusic.composer);
+  if(result.length ===0) {
+    result = unFinished.filter(m=>{
+      return m.genre.some(g=> currentMusic.genre.includes(g));
+    })
+  }
+  if(result.length ===0) {
+    result = unFinished.filter(m=> m.difficulty === currentMusic.difficulty);
+  }
+  return result.slice(0,3);
+}
+function renderRecommend(list) {
+  const recContainer = document.getElementById('recommend-container');
+  if(!recContainer) return;
+  recContainer.innerHTML = `<h4>推荐曲目</h4>` + list.map(m=>`
+    <div>
+      ${m.title}
+      <button onclick="addToTodo(${JSON.stringify(m)})">加入待听</button>
+    </div>
+  `).join('');
+}
+
+// ===== 难度解锁 =====
+function getFinishedCount() {
+  return Number(localStorage.getItem(STORAGE.finishCount));
+}
+function addFinishCount() {
+  const cnt = getFinishedCount() + 1;
+  localStorage.setItem(STORAGE.finishCount, cnt);
+  checkUnlockStatus();
+}
+function isMusicUnlocked(music) {
+  const cnt = getFinishedCount();
+  if(music.difficulty === 1) return true;
+  if(music.difficulty === 2) return cnt >=5;
+  if(music.difficulty ===3) return cnt >=12;
+  return false;
+}
+function checkUnlockStatus() {
+  // 遍历所有乐曲卡片做置灰
+}
+
+// ===== 播放完成回调 =====
+async function onMusicComplete(music) {
+  addFinishCount();
+  removeFromTodo(music.musicId);
+  const recommends = getRecommendList(music, allMusicList);
+  renderRecommend(recommends);
+}
+</script>
+
+<!-- 页面HTML控件，放在script前面或者合适位置 -->
+<!-- 模式切换按钮 -->
+<div class="mode-bar">
+  <button onclick="switchPlayMode('study')">📖学习模式</button>
+  <button onclick="switchPlayMode('immerse')">🎧沉浸模式</button>
+</div>
+
+<!-- 首页待听区域 -->
+<section class="todo-section">
+  <h3>📋 我的待听清单</h3>
+  <div id="todo-container"></div>
+</section>
+
+<!-- 收藏区域 -->
+<section class="favorite-section">
+  <h3>✨ 我的收藏</h3>
+  <div id="favorite-container"></div>
+</section>
+
+<!-- 推荐曲目 -->
+<section class="recommend-section">
+  <div id="recommend-container"></div>
+</section>
+
+<!-- 学习模式专属DOM -->
+<div class="study-only">
+  <div class="anchor-question-panel">锚点提问弹窗面板</div>
+  <div class="note-input">笔记输入框</div>
+</div>
 </body>
 </html>
