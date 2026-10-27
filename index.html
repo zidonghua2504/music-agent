@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>音乐作品助手 — 引导式音乐鉴赏</title>
+
+
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -15,6 +17,26 @@
   --user-bubble:linear-gradient(135deg,#6d5cff,#4f8fe8);
   --bot-bubble:#1b2347;
 }
+    .note-toggle{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--muted);font-size:15px;cursor:pointer;margin-right:4px;}
+.note-toggle:hover{color:var(--violet);border-color:var(--violet);}
+.note-panel{display:none;padding:12px 16px;border-top:1px solid var(--border);background:rgba(11,16,32,.5);}
+.note-panel.show{display:block;}
+.note-panel textarea{width:100%;min-height:80px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:13.5px;outline:none;resize:vertical;font-family:inherit;line-height:1.6;}
+.note-panel textarea:focus{border-color:var(--violet);}
+.note-actions{display:flex;gap:8px;margin-top:8px;align-items:center;}
+.note-actions .btn{padding:6px 12px;font-size:12.5px;border-radius:10px;}
+.note-tip{font-size:12px;color:var(--muted);margin-left:auto;}
+  <div class="note-panel" id="notePanel">
+  <textarea id="noteText" placeholder="写下你的聆听感受、想到的画面、听到的乐器……"></textarea>
+  <div class="note-actions">
+    <button class="btn primary" onclick="saveCurrentNote()">保存笔记</button>
+    <button class="btn" onclick="clearCurrentNote()">清空</button>
+    <span class="note-tip">💡 笔记仅保存在本机浏览器</span>
+  </div>
+</div>
+
+  <button class="note-toggle" id="noteToggle" onclick="toggleNotePanel()" title="聆听笔记">📝</button>
+
 html,body{background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased;}
@@ -373,6 +395,44 @@ body{min-height:100vh;overflow-x:hidden}
     <div class="modal-actions"><button class="btn" onclick="closeModal('histModal')">关闭</button></div>
   </div>
 </div>
+// 聆听笔记功能
+const NOTE_KEY = 'music_listen_notes';
+function toggleNotePanel(){
+  document.getElementById('notePanel').classList.toggle('show');
+  loadCurrentNote();
+}
+function getNoteData(){
+  try{ return JSON.parse(localStorage.getItem(NOTE_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveCurrentNote(){
+  if(!workName) return;
+  const data = getNoteData();
+  data[workName] = {
+    content: document.getElementById('noteText').value.trim(),
+    time: new Date().toLocaleString()
+  };
+  localStorage.setItem(NOTE_KEY, JSON.stringify(data));
+  toast('✅ 笔记已保存');
+}
+function loadCurrentNote(){
+  if(!workName) return;
+  const data = getNoteData();
+  document.getElementById('noteText').value = data[workName]?.content || '';
+}
+function clearCurrentNote(){
+  if(!workName) return;
+  if(!confirm('确定清空这首的笔记吗？')) return;
+  const data = getNoteData();
+  delete data[workName];
+  localStorage.setItem(NOTE_KEY, JSON.stringify(data));
+  document.getElementById('noteText').value = '';
+  toast('已清空');
+}
+const _oldStartChat = startChat;
+window.startChat = function(name, resume){
+  _oldStartChat(name, resume);
+  document.getElementById('notePanel').classList.remove('show');
+};
 
 <script>
 // ============================================================
@@ -2126,222 +2186,5 @@ window.copyReport=copyReport; window.confirmRestart=confirmRestart;
 window.openHist=openHist; window.delHist=delHist;
 init();
 </script>
-  <script>
-// 在这里粘贴我们之前写的全部JS代码
-// ===== 存储KEY 统一管理 =====
-const STORAGE = {
-  listenRecords: 'musicAgent_listenRecords',
-  todoList: 'musicAgent_todoList',
-  favoriteList: 'musicAgent_favoriteList',
-  playMode: 'musicAgent_playMode',
-  finishCount: 'musicAgent_finishCount'
-}
-
-// 初始化本地存储，不存在则新建空数组
-function initStorage() {
-  if (!localStorage.getItem(STORAGE.listenRecords)) localStorage.setItem(STORAGE.listenRecords, JSON.stringify([]));
-  if (!localStorage.getItem(STORAGE.todoList)) localStorage.setItem(STORAGE.todoList, JSON.stringify([]));
-  if (!localStorage.getItem(STORAGE.favoriteList)) localStorage.setItem(STORAGE.favoriteList, JSON.stringify([]));
-  if (!localStorage.getItem(STORAGE.playMode)) localStorage.setItem(STORAGE.playMode, 'study'); // 默认学习模式
-  if (!localStorage.getItem(STORAGE.finishCount)) localStorage.setItem(STORAGE.finishCount, '0');
-}
-initStorage();
-
-// 读取/写入工具函数
-function getStorage(key) {
-  return JSON.parse(localStorage.getItem(key));
-}
-function setStorage(key, data) {
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-// ===== 待听清单 =====
-function addToTodo(music) {
-  const list = getStorage(STORAGE.todoList);
-  const exist = list.find(item => item.musicId === music.musicId);
-  if(exist) return alert("已经在待听清单里了");
-  list.push({
-    musicId: music.musicId,
-    title: music.title,
-    addTime: new Date().toLocaleString()
-  });
-  setStorage(STORAGE.todoList, list);
-  renderTodoList();
-}
-function removeFromTodo(musicId) {
-  let list = getStorage(STORAGE.todoList);
-  list = list.filter(item => item.musicId !== musicId);
-  setStorage(STORAGE.todoList, list);
-  renderTodoList();
-}
-function renderTodoList() {
-  const todo = getStorage(STORAGE.todoList);
-  const container = document.getElementById('todo-container');
-  if(!container) return;
-  container.innerHTML = todo.map(item=>`
-    <div class="todo-item">
-      <span>${item.title}</span>
-      <button onclick="openMusic('${item.musicId}')">播放</button>
-      <button onclick="removeFromTodo('${item.musicId}')">移除</button>
-    </div>
-  `).join('');
-}
-
-// ===== 收藏 =====
-function toggleFavorite(music) {
-  const list = getStorage(STORAGE.favoriteList);
-  const idx = list.findIndex(item => item.musicId === music.musicId);
-  if(idx >=0) {
-    list.splice(idx,1);
-    alert("已取消收藏");
-  } else {
-    list.push({
-      musicId: music.musicId,
-      title: music.title,
-      addTime: new Date().toLocaleString()
-    });
-    alert("⭐已收藏");
-  }
-  setStorage(STORAGE.favoriteList, list);
-  renderFavoriteList();
-}
-function renderFavoriteList() {
-  const fav = getStorage(STORAGE.favoriteList);
-  const container = document.getElementById('favorite-container');
-  if(!container) return;
-  container.innerHTML = fav.map(item=>`
-    <div class="fav-item">
-      <span>${item.title}</span>
-      <button onclick="openMusic('${item.musicId}')">播放</button>
-    </div>
-  `).join('');
-}
-
-// ===== 聆听模式切换（沉浸 / 学习模式）=====
-let anchorListener = null;
-function enableAnchorPoint(){
-  // 播放器锚点监听，学习模式开启
-  const audio = document.querySelector('audio');
-  if(!audio) return;
-  anchorListener = function() {
-    // 原有锚点判断逻辑写在这里
-  }
-  audio.addEventListener('timeupdate', anchorListener);
-}
-function disableAnchorPoint(){
-  const audio = document.querySelector('audio');
-  if(!audio || !anchorListener) return;
-  audio.removeEventListener('timeupdate', anchorListener);
-  anchorListener = null;
-}
-function switchPlayMode(mode) {
-  setStorage(STORAGE.playMode, mode);
-  const allStudyDom = document.querySelectorAll('.study-only');
-  if(mode === 'study') {
-    allStudyDom.forEach(el=>el.style.display = 'block');
-    enableAnchorPoint();
-  } else {
-    allStudyDom.forEach(el=>el.style.display = 'none');
-    disableAnchorPoint();
-  }
-}
-// 页面加载自动读取上次模式
-window.addEventListener('load', ()=>{
-  const mode = localStorage.getItem(STORAGE.playMode);
-  switchPlayMode(mode);
-  renderTodoList();
-  renderFavoriteList();
-});
-
-// ===== 曲目推荐引擎 =====
-function getRecommendList(currentMusic, allMusicList) {
-  const records = getStorage(STORAGE.listenRecords);
-  const finishedIds = [];
-  records.forEach(rec=>{
-    rec.listenSessions.forEach(s=>{
-      if(s.isComplete) finishedIds.push(rec.musicId);
-    })
-  });
-  const unFinished = allMusicList.filter(m=> !finishedIds.includes(m.musicId));
-  let result = unFinished.filter(m=> m.composer === currentMusic.composer);
-  if(result.length ===0) {
-    result = unFinished.filter(m=>{
-      return m.genre.some(g=> currentMusic.genre.includes(g));
-    })
-  }
-  if(result.length ===0) {
-    result = unFinished.filter(m=> m.difficulty === currentMusic.difficulty);
-  }
-  return result.slice(0,3);
-}
-function renderRecommend(list) {
-  const recContainer = document.getElementById('recommend-container');
-  if(!recContainer) return;
-  recContainer.innerHTML = `<h4>推荐曲目</h4>` + list.map(m=>`
-    <div>
-      ${m.title}
-      <button onclick="addToTodo(${JSON.stringify(m)})">加入待听</button>
-    </div>
-  `).join('');
-}
-
-// ===== 难度解锁 =====
-function getFinishedCount() {
-  return Number(localStorage.getItem(STORAGE.finishCount));
-}
-function addFinishCount() {
-  const cnt = getFinishedCount() + 1;
-  localStorage.setItem(STORAGE.finishCount, cnt);
-  checkUnlockStatus();
-}
-function isMusicUnlocked(music) {
-  const cnt = getFinishedCount();
-  if(music.difficulty === 1) return true;
-  if(music.difficulty === 2) return cnt >=5;
-  if(music.difficulty ===3) return cnt >=12;
-  return false;
-}
-function checkUnlockStatus() {
-  // 遍历所有乐曲卡片做置灰
-}
-
-// ===== 播放完成回调 =====
-async function onMusicComplete(music) {
-  addFinishCount();
-  removeFromTodo(music.musicId);
-  const recommends = getRecommendList(music, allMusicList);
-  renderRecommend(recommends);
-}
-</script>
-
-<!-- 页面HTML控件，放在script前面或者合适位置 -->
-<!-- 模式切换按钮 -->
-<div class="mode-bar">
-  <button onclick="switchPlayMode('study')">📖学习模式</button>
-  <button onclick="switchPlayMode('immerse')">🎧沉浸模式</button>
-</div>
-
-<!-- 首页待听区域 -->
-<section class="todo-section">
-  <h3>📋 我的待听清单</h3>
-  <div id="todo-container"></div>
-</section>
-
-<!-- 收藏区域 -->
-<section class="favorite-section">
-  <h3>✨ 我的收藏</h3>
-  <div id="favorite-container"></div>
-</section>
-
-<!-- 推荐曲目 -->
-<section class="recommend-section">
-  <div id="recommend-container"></div>
-</section>
-
-<!-- 学习模式专属DOM -->
-<div class="study-only">
-  <div class="anchor-question-panel">锚点提问弹窗面板</div>
-  <div class="note-input">笔记输入框</div>
-</div>
 </body>
 </html>
